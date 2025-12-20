@@ -3,8 +3,9 @@
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
@@ -71,7 +72,11 @@ async def help(message: types.Message):
         "/edit_pinned - изменить текст закрепленного сообщения (введи новый текст после команды)\n"
         "/show_pinned_id - показать ID текущего закрепленного сообщения\n"
         "/delete_my - удалить сообщение бота (ответь на сообщение бота этой командой)\n"
-        "/delete_any - удалить любое сообщение (требуются права администратора, ответь на сообщение)"
+        "/delete_any - удалить любое сообщение (требуются права администратора, ответь на сообщение)\n"
+        "/test_inline_buttons - протестировать inline кнопки с callback_data\n"
+        "/test_url_buttons - протестировать inline кнопки с URL\n"
+        "/test_reply_keyboard - протестировать Reply клавиатуру (кнопки рядом с полем ввода)\n"
+        "/remove_keyboard - убрать Reply клавиатуру"
     )
 
 # ============================================================
@@ -511,6 +516,344 @@ async def test_group_message(message: types.Message):
         logger.info(f"✅ Тестовое сообщение отправлено в группу {message.chat.title} (ID: {message.chat.id})")
     else:
         await message.answer("❌ Эта команда работает только в группах!")
+
+# ============================================================
+# ТЕСТИРОВАНИЕ: INLINE КНОПКИ С CALLBACK_DATA
+# ============================================================
+@dp.message(Command('test_inline_buttons'))
+async def test_inline_buttons(message: types.Message):
+    """Тестовая команда для проверки inline кнопок с callback_data"""
+    # Создаем inline клавиатуру с кнопками
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Кнопка 1", callback_data="btn_1"),
+                InlineKeyboardButton(text="✅ Кнопка 2", callback_data="btn_2")
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Обновить", callback_data="btn_refresh")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Закрыть", callback_data="btn_close")
+            ]
+        ]
+    )
+    
+    await message.answer(
+        "🧪 Тест inline кнопок с callback_data\n\n"
+        "Нажми на любую кнопку ниже:",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Тест inline кнопок отправлен пользователю {message.from_user.id}")
+
+# Обработчик нажатия на кнопку "Кнопка 1"
+@dp.callback_query(F.data == "btn_1")
+async def handle_button_1(callback: types.CallbackQuery):
+    """Обработчик нажатия на первую кнопку"""
+    await callback.answer("Ты нажал на кнопку 1! ✅", show_alert=False)
+    await callback.message.edit_text(
+        "🧪 Тест inline кнопок с callback_data\n\n"
+        "✅ Ты нажал на кнопку 1!\n"
+        "👤 Пользователь: " + callback.from_user.full_name + "\n"
+        "🆔 ID: " + str(callback.from_user.id),
+        reply_markup=callback.message.reply_markup  # Сохраняем клавиатуру
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} нажал на кнопку 1")
+
+# Обработчик нажатия на кнопку "Кнопка 2"
+@dp.callback_query(F.data == "btn_2")
+async def handle_button_2(callback: types.CallbackQuery):
+    """Обработчик нажатия на вторую кнопку"""
+    await callback.answer("Ты нажал на кнопку 2! ✅", show_alert=False)
+    await callback.message.edit_text(
+        "🧪 Тест inline кнопок с callback_data\n\n"
+        "✅ Ты нажал на кнопку 2!\n"
+        "👤 Пользователь: " + callback.from_user.full_name + "\n"
+        "🆔 ID: " + str(callback.from_user.id),
+        reply_markup=callback.message.reply_markup
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} нажал на кнопку 2")
+
+# Обработчик нажатия на кнопку "Обновить"
+@dp.callback_query(F.data == "btn_refresh")
+async def handle_button_refresh(callback: types.CallbackQuery):
+    """Обработчик нажатия на кнопку обновления"""
+    await callback.answer("Сообщение обновлено! 🔄", show_alert=False)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Кнопка 1", callback_data="btn_1"),
+                InlineKeyboardButton(text="✅ Кнопка 2", callback_data="btn_2")
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Обновить", callback_data="btn_refresh")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Закрыть", callback_data="btn_close")
+            ]
+        ]
+    )
+    await callback.message.edit_text(
+        "🧪 Тест inline кнопок с callback_data\n\n"
+        "🔄 Сообщение обновлено!\n"
+        "🕐 Время: " + datetime.now().strftime('%H:%M:%S') + "\n"
+        "👤 Пользователь: " + callback.from_user.full_name,
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} обновил сообщение")
+
+# Обработчик нажатия на кнопку "Закрыть"
+@dp.callback_query(F.data == "btn_close")
+async def handle_button_close(callback: types.CallbackQuery):
+    """Обработчик нажатия на кнопку закрытия"""
+    await callback.answer("Сообщение закрыто! ❌", show_alert=False)
+    await callback.message.edit_text(
+        "❌ Сообщение закрыто пользователем " + callback.from_user.full_name
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} закрыл сообщение")
+
+# ============================================================
+# ТЕСТИРОВАНИЕ: INLINE КНОПКИ С URL
+# ============================================================
+@dp.message(Command('test_url_buttons'))
+async def test_url_buttons(message: types.Message):
+    """Тестовая команда для проверки inline кнопок с URL"""
+    # Создаем inline клавиатуру с кнопками, содержащими URL
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔗 Открыть Google", 
+                    url="https://www.google.com"
+                ),
+                InlineKeyboardButton(
+                    text="🔗 Открыть GitHub", 
+                    url="https://github.com"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📚 Документация aiogram", 
+                    url="https://docs.aiogram.dev/"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 Telegram Web", 
+                    url="https://web.telegram.org"
+                ),
+                InlineKeyboardButton(
+                    text="🔙 Вернуться к callback кнопкам", 
+                    callback_data="btn_back_to_callback"
+                )
+            ]
+        ]
+    )
+    
+    await message.answer(
+        "🧪 Тест inline кнопок с URL\n\n"
+        "Нажми на кнопки ниже, чтобы открыть ссылки:\n"
+        "• URL кнопки открывают ссылки в браузере\n"
+        "• Можно комбинировать URL и callback кнопки\n"
+        "• URL кнопки не требуют обработчиков callback",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Тест URL кнопок отправлен пользователю {message.from_user.id}")
+
+# Обработчик для кнопки "Вернуться к callback кнопкам"
+@dp.callback_query(F.data == "btn_back_to_callback")
+async def handle_back_to_callback(callback: types.CallbackQuery):
+    """Обработчик возврата к callback кнопкам"""
+    await callback.answer("Возвращаемся к callback кнопкам! 🔄", show_alert=False)
+    
+    # Создаем клавиатуру с callback кнопками
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Кнопка 1", callback_data="btn_1"),
+                InlineKeyboardButton(text="✅ Кнопка 2", callback_data="btn_2")
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Обновить", callback_data="btn_refresh")
+            ],
+            [
+                InlineKeyboardButton(text="🔗 К URL кнопкам", callback_data="btn_to_url")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Закрыть", callback_data="btn_close")
+            ]
+        ]
+    )
+    
+    await callback.message.edit_text(
+        "🧪 Тест inline кнопок с callback_data\n\n"
+        "Вернулись к callback кнопкам!\n"
+        "Нажми на любую кнопку:",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} вернулся к callback кнопкам")
+
+# Обработчик для перехода к URL кнопкам
+@dp.callback_query(F.data == "btn_to_url")
+async def handle_to_url(callback: types.CallbackQuery):
+    """Обработчик перехода к URL кнопкам"""
+    await callback.answer("Переходим к URL кнопкам! 🔗", show_alert=False)
+    
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔗 Открыть Google", 
+                    url="https://www.google.com"
+                ),
+                InlineKeyboardButton(
+                    text="🔗 Открыть GitHub", 
+                    url="https://github.com"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📚 Документация aiogram", 
+                    url="https://docs.aiogram.dev/"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Вернуться к callback кнопкам", 
+                    callback_data="btn_back_to_callback"
+                )
+            ]
+        ]
+    )
+    
+    await callback.message.edit_text(
+        "🧪 Тест inline кнопок с URL\n\n"
+        "Нажми на кнопки ниже, чтобы открыть ссылки:",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Пользователь {callback.from_user.id} перешел к URL кнопкам")
+
+# ============================================================
+# ТЕСТИРОВАНИЕ: REPLY KEYBOARD (КНОПКИ РЯДОМ С ПОЛЕМ ВВОДА)
+# ============================================================
+@dp.message(Command('test_reply_keyboard'))
+async def test_reply_keyboard(message: types.Message):
+    """Тестовая команда для проверки Reply клавиатуры (кнопки рядом с полем ввода)"""
+    # Создаем Reply клавиатуру
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="✅ Кнопка 1"),
+                KeyboardButton(text="✅ Кнопка 2")
+            ],
+            [
+                KeyboardButton(text="🔄 Обновить"),
+                KeyboardButton(text="📊 Информация")
+            ],
+            [
+                KeyboardButton(text="❌ Убрать клавиатуру")
+            ]
+        ],
+        resize_keyboard=True,  # Автоматически подстраивает размер кнопок
+        one_time_keyboard=False,  # Клавиатура остается после нажатия
+        input_field_placeholder="Выбери кнопку или введи текст..."  # Подсказка в поле ввода
+    )
+    
+    await message.answer(
+        "🧪 Тест Reply клавиатуры (кнопки рядом с полем ввода)\n\n"
+        "Теперь рядом с полем ввода появились кнопки!\n"
+        "• Нажми на любую кнопку\n"
+        "• Или введи текст\n"
+        "• Маленькая кнопка рядом с полем ввода позволяет переключаться между клавиатурами",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Reply клавиатура отправлена пользователю {message.from_user.id}")
+
+@dp.message(Command('remove_keyboard'))
+async def remove_keyboard(message: types.Message):
+    """Убирает Reply клавиатуру"""
+    await message.answer(
+        "✅ Клавиатура убрана!\n"
+        "💡 Чтобы вернуть её, используй /test_reply_keyboard",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    logger.info(f"✅ Reply клавиатура убрана для пользователя {message.from_user.id}")
+
+# Обработчики нажатий на кнопки Reply клавиатуры
+@dp.message(F.text == "✅ Кнопка 1")
+async def handle_reply_button_1(message: types.Message):
+    """Обработчик нажатия на кнопку 1 в Reply клавиатуре"""
+    await message.answer(
+        f"✅ Ты нажал на кнопку 1!\n"
+        f"👤 Пользователь: {message.from_user.full_name}\n"
+        f"🆔 ID: {message.from_user.id}"
+    )
+    logger.info(f"✅ Пользователь {message.from_user.id} нажал на Reply кнопку 1")
+
+@dp.message(F.text == "✅ Кнопка 2")
+async def handle_reply_button_2(message: types.Message):
+    """Обработчик нажатия на кнопку 2 в Reply клавиатуре"""
+    await message.answer(
+        f"✅ Ты нажал на кнопку 2!\n"
+        f"👤 Пользователь: {message.from_user.full_name}\n"
+        f"🆔 ID: {message.from_user.id}"
+    )
+    logger.info(f"✅ Пользователь {message.from_user.id} нажал на Reply кнопку 2")
+
+@dp.message(F.text == "🔄 Обновить")
+async def handle_reply_refresh(message: types.Message):
+    """Обработчик нажатия на кнопку обновления в Reply клавиатуре"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="✅ Кнопка 1"),
+                KeyboardButton(text="✅ Кнопка 2")
+            ],
+            [
+                KeyboardButton(text="🔄 Обновить"),
+                KeyboardButton(text="📊 Информация")
+            ],
+            [
+                KeyboardButton(text="❌ Убрать клавиатуру")
+            ]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Выбери кнопку или введи текст..."
+    )
+    
+    await message.answer(
+        f"🔄 Клавиатура обновлена!\n"
+        f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+        f"👤 Пользователь: {message.from_user.full_name}",
+        reply_markup=keyboard
+    )
+    logger.info(f"✅ Пользователь {message.from_user.id} обновил Reply клавиатуру")
+
+@dp.message(F.text == "📊 Информация")
+async def handle_reply_info(message: types.Message):
+    """Обработчик нажатия на кнопку информации в Reply клавиатуре"""
+    await message.answer(
+        f"📊 Информация о Reply клавиатуре:\n\n"
+        f"• Это Reply клавиатура (ReplyKeyboardMarkup)\n"
+        f"• Кнопки появляются рядом с полем ввода\n"
+        f"• Можно переключаться между обычной и Reply клавиатурой\n"
+        f"• Работает в группах и личных сообщениях\n\n"
+        f"👤 Пользователь: {message.from_user.full_name}\n"
+        f"🆔 ID: {message.from_user.id}\n"
+        f"💬 Чат: {message.chat.title if message.chat.type in ['group', 'supergroup'] else 'Личный чат'}"
+    )
+    logger.info(f"✅ Пользователь {message.from_user.id} запросил информацию о Reply клавиатуре")
+
+@dp.message(F.text == "❌ Убрать клавиатуру")
+async def handle_reply_remove(message: types.Message):
+    """Обработчик нажатия на кнопку удаления клавиатуры"""
+    await message.answer(
+        "✅ Клавиатура убрана!\n"
+        "💡 Чтобы вернуть её, используй /test_reply_keyboard",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    logger.info(f"✅ Пользователь {message.from_user.id} убрал Reply клавиатуру")
 
 # ============================================================
 # ОБРАБОТЧИК СООБЩЕНИЙ В ГРУППЕ

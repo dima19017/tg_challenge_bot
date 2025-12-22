@@ -252,22 +252,18 @@ async def update_statistics_message(chat_id: int):
     
     try:
         if chat_id in stats_message_id:
-            # Обновляем существующее сообщение
+            # Удаляем старое сообщение со статистикой
             try:
-                await bot.edit_message_text(
+                await bot.delete_message(
                     chat_id=chat_id,
-                    message_id=stats_message_id[chat_id],
-                    text=stats_text,
-                    parse_mode="HTML"
+                    message_id=stats_message_id[chat_id]
                 )
-                logger.info(f"✅ Статистика обновлена для группы {chat_id}")
+                logger.info(f"✅ Старое сообщение со статистикой удалено для группы {chat_id}")
             except Exception as e:
-                # Если сообщение не найдено, создаем новое
-                logger.warning(f"⚠️ Не удалось обновить сообщение, создаем новое: {e}")
-                await create_statistics_message(chat_id, stats_text)
-        else:
-            # Создаем новое сообщение
-            await create_statistics_message(chat_id, stats_text)
+                logger.warning(f"⚠️ Не удалось удалить старое сообщение: {e}")
+        
+        # Создаем новое сообщение со статистикой
+        await create_statistics_message(chat_id, stats_text)
     except Exception as e:
         logger.error(f"❌ Ошибка обновления статистики: {e}")
 
@@ -282,18 +278,18 @@ async def create_statistics_message(chat_id: int, stats_text: str):
         )
         
         # Закрепляем сообщение
-        try:
-            await bot.pin_chat_message(
-                chat_id=chat_id,
-                message_id=sent_message.message_id,
-                disable_notification=True
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось закрепить сообщение (нужны права администратора): {e}")
+        # try:
+        #     await bot.pin_chat_message(
+        #         chat_id=chat_id,
+        #         message_id=sent_message.message_id,
+        #         disable_notification=True
+        #     )
+        # except Exception as e:
+        #     logger.warning(f"⚠️ Не удалось закрепить сообщение (нужны права администратора): {e}")
         
         # Сохраняем ID сообщения
         stats_message_id[chat_id] = sent_message.message_id
-        logger.info(f"✅ Статистика создана и закреплена для группы {chat_id}")
+        logger.info(f"✅ Статистика создана для группы {chat_id}")
     except Exception as e:
         logger.error(f"❌ Ошибка создания статистики: {e}")
 
@@ -311,11 +307,17 @@ async def statistics(message: types.Message):
     # Инициализируем данные, если еще не инициализированы
     init_test_data(message.chat.id)
     
+    # Удаляем сообщение пользователя
+    try:
+        await bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
+    # Обновляем статистику (функция сама удалит старое сообщение, если оно есть)
     await update_statistics_message(message.chat.id)
-    await message.answer(
-        "✅ Статистика обновлена!",
-        reply_markup=get_main_keyboard()
-    )
 
 @dp.message(F.text == "📋 Список привычек")
 async def list_habits(message: types.Message):

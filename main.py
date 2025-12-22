@@ -42,18 +42,53 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [
                 KeyboardButton(text="✅ Отметить привычку"),
-                KeyboardButton(text="📊 Мои привычки")
+                # KeyboardButton(text="📊 Мои привычки")
             ],
             [
                 KeyboardButton(text="📈 Статистика"),
-                KeyboardButton(text="📋 Список привычек")
+                # KeyboardButton(text="📋 Список привычек")
             ],
-            [
-                KeyboardButton(text="ℹ️ Помощь")
-            ]
+            # [
+            #     KeyboardButton(text="ℹ️ Помощь")
+            # ]
         ],
         resize_keyboard=True,  # Автоматически подстраивает размер кнопок
         input_field_placeholder="Выбери действие на клавиатуре..."
+    )
+    return keyboard
+
+def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup:
+    """Генерирует клавиатуру с привычками пользователя"""
+    keyboard_buttons = []
+    
+    # Проверяем, есть ли пользователь в данных
+    if chat_id not in tracker_data or user_id not in tracker_data[chat_id]:
+        # Если пользователя нет, возвращаем пустую клавиатуру с кнопкой "Назад"
+        return ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🔙 Назад")]],
+            resize_keyboard=True
+        )
+    
+    # Получаем привычки пользователя
+    user_habits = tracker_data[chat_id][user_id]
+    habits_meta = habits_metadata.get(chat_id, {})
+    
+    # Создаем кнопки для каждой привычки
+    for habit_id in sorted(user_habits.keys()):
+        habit_info = habits_meta.get(habit_id, {})
+        emoji = habit_info.get("emoji", "❓")
+        name = habit_info.get("name", habit_id)
+        # Формат кнопки: "🧎 Медитация"
+        button_text = f"{emoji} {name}"
+        keyboard_buttons.append([KeyboardButton(text=button_text)])
+    
+    # Добавляем кнопку "Назад"
+    keyboard_buttons.append([KeyboardButton(text="🔙 Назад")])
+    
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=keyboard_buttons,
+        resize_keyboard=True,
+        input_field_placeholder="Выбери привычку для отметки..."
     )
     return keyboard
 
@@ -62,6 +97,15 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
 # ============================================================
 @dp.message(Command('start'))
 async def start(message: types.Message):
+    # Удаляем сообщение пользователя
+    try:
+        await bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
     await message.answer(
         "👋 Привет! Это бот для семейного челленджа!\n\n"
         "💡 Используй кнопки ниже для навигации.\n"
@@ -79,10 +123,10 @@ async def help(message: types.Message):
         "📖 Помощь:\n\n"
         "Используй кнопки на клавиатуре для навигации:\n"
         "• ✅ Отметить привычку - отметить выполнение\n"
-        "• 📊 Мои привычки - посмотреть свои привычки\n"
-        "• 📈 Статистика - посмотреть статистику\n"
-        "• 📋 Список привычек - список всех привычек\n"
-        "• ℹ️ Помощь - показать эту справку",
+        # "• 📊 Мои привычки - посмотреть свои привычки\n"
+        "• 📈 Статистика - посмотреть статистику\n",
+        # "• 📋 Список привычек - список всех привычек\n"
+        # "• ℹ️ Помощь - показать эту справку",
         reply_markup=get_main_keyboard()
     )
 
@@ -148,20 +192,244 @@ async def get_members(message: types.Message):
 @dp.message(F.text == "✅ Отметить привычку")
 async def mark_habit(message: types.Message):
     """Обработчик кнопки 'Отметить привычку'"""
-    await message.answer(
-        "✅ Отметить привычку\n\n"
-        "💡 Функционал в разработке...",
-        reply_markup=get_main_keyboard()
+    if message.chat.type not in ['group', 'supergroup']:
+        await message.answer(
+            "❌ Отметка привычек работает только в группах!\n"
+            "Добавь бота в группу для использования.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Инициализируем данные, если еще не инициализированы
+    init_test_data(message.chat.id)
+    
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Проверяем, есть ли пользователь в данных
+    if chat_id not in tracker_data or user_id not in tracker_data[chat_id]:
+        await message.answer(
+            "❌ Твои привычки еще не настроены.\n"
+            "Обратись к администратору группы.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Удаляем сообщение пользователя
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
+    # Удаляем предыдущее сообщение "Выбери привычку", если оно есть
+    if chat_id in habit_selection_message_id and user_id in habit_selection_message_id[chat_id]:
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=habit_selection_message_id[chat_id][user_id]
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить предыдущее сообщение выбора привычки: {e}")
+    
+    # Показываем клавиатуру с привычками пользователя
+    habits_kb = get_habits_keyboard(user_id, chat_id)
+    sent_message = await message.answer(
+        "✅ Выбери привычку для отметки:",
+        reply_markup=habits_kb
     )
+    
+    # Сохраняем ID сообщения для последующего удаления
+    if chat_id not in habit_selection_message_id:
+        habit_selection_message_id[chat_id] = {}
+    habit_selection_message_id[chat_id][user_id] = sent_message.message_id
 
-@dp.message(F.text == "📊 Мои привычки")
-async def my_habits(message: types.Message):
-    """Обработчик кнопки 'Мои привычки'"""
-    await message.answer(
-        "📊 Мои привычки\n\n"
-        "💡 Функционал в разработке...",
-        reply_markup=get_main_keyboard()
+@dp.message(F.text == "🔙 Назад")
+async def back_to_main(message: types.Message):
+    """Обработчик кнопки 'Назад' - возвращает главную клавиатуру"""
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    
+    # Удаляем сообщение пользователя
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
+    # Удаляем сообщение "Выбери привычку для отметки", если оно есть
+    if chat_id in habit_selection_message_id and user_id in habit_selection_message_id[chat_id]:
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=habit_selection_message_id[chat_id][user_id]
+            )
+            del habit_selection_message_id[chat_id][user_id]
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить сообщение выбора привычки: {e}")
+    
+    # Отправляем сообщение без уведомлений и удаляем его
+    sent_message = await message.answer(
+        "🔙 Возврат в главное меню",
+        reply_markup=get_main_keyboard(),
+        disable_notification=True
     )
+    
+    # Удаляем сообщение через небольшую задержку
+    async def delete_after_delay():
+        await asyncio.sleep(2)  # Задержка 2 секунды
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=sent_message.message_id
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить сообщение 'Возврат в главное меню': {e}")
+    
+    asyncio.create_task(delete_after_delay())
+
+@dp.message(F.text.startswith("🧎") | F.text.startswith("📚") | F.text.startswith("🏋️") | 
+            F.text.startswith("💊") | F.text.startswith("🥛") | F.text.startswith("🚶") | 
+            F.text.startswith("🕺") | F.text.startswith("👍"))
+async def mark_habit_button(message: types.Message):
+    """Обработчик нажатия на кнопку привычки"""
+    if message.chat.type not in ['group', 'supergroup']:
+        await message.answer(
+            "❌ Отметка привычек работает только в группах!",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Проверяем формат кнопки: должна содержать пробел (эмодзи + название)
+    button_text = message.text
+    if " " not in button_text:
+        # Это не кнопка привычки, игнорируем
+        return
+    
+    # Инициализируем данные, если еще не инициализированы
+    init_test_data(message.chat.id)
+    
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Проверяем, есть ли пользователь в данных
+    if chat_id not in tracker_data or user_id not in tracker_data[chat_id]:
+        await message.answer(
+            "❌ Твои привычки еще не настроены.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Парсим текст кнопки: "🧎 Медитация" -> эмодзи и название
+    # Разделяем по первому пробелу
+    parts = button_text.split(" ", 1)
+    if len(parts) != 2:
+        await message.answer(
+            "❌ Ошибка определения привычки.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    emoji = parts[0]
+    habit_name = parts[1]
+    
+    # Находим habit_id по эмодзи и названию
+    habits_meta = habits_metadata.get(chat_id, {})
+    habit_id = None
+    
+    for hid, info in habits_meta.items():
+        if info.get("emoji") == emoji and info.get("name") == habit_name:
+            habit_id = hid
+            break
+    
+    if not habit_id:
+        await message.answer(
+            "❌ Привычка не найдена.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Проверяем, есть ли эта привычка у пользователя
+    if habit_id not in tracker_data[chat_id][user_id]:
+        await message.answer(
+            "❌ У тебя нет такой привычки.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Отмечаем привычку для текущей даты
+    from datetime import datetime
+    today_str = datetime.now().date().strftime("%Y-%m-%d")
+    
+    # Убеждаемся, что дата существует в структуре данных
+    if today_str not in tracker_data[chat_id][user_id][habit_id]:
+        # Если даты нет, инициализируем её
+        tracker_data[chat_id][user_id][habit_id][today_str] = True
+    else:
+        # Отмечаем привычку (True - выполнено)
+        tracker_data[chat_id][user_id][habit_id][today_str] = True
+    
+    # Обновляем статистику
+    await update_statistics_message(chat_id)
+    
+    # Удаляем сообщение пользователя
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
+    # Удаляем сообщение "Выбери привычку для отметки", если оно есть
+    if chat_id in habit_selection_message_id and user_id in habit_selection_message_id[chat_id]:
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=habit_selection_message_id[chat_id][user_id]
+            )
+            # Удаляем из словаря
+            del habit_selection_message_id[chat_id][user_id]
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить сообщение выбора привычки: {e}")
+    
+    # Получаем информацию о пользователе для отображения
+    user_info = users_metadata.get(chat_id, {}).get(user_id, {})
+    user_name = user_info.get("name", message.from_user.full_name or "Пользователь")
+    user_emoji = user_info.get("emoji", "👤")
+    
+    # Отправляем подтверждение с информацией о пользователе без уведомлений и удаляем его
+    sent_message = await message.answer(
+        f"✅ {user_emoji} {user_name} отметил(а) привычку '{habit_name}' на сегодня!",
+        reply_markup=get_main_keyboard(),
+        disable_notification=True
+    )
+    
+    # Удаляем сообщение через небольшую задержку
+    async def delete_after_delay():
+        await asyncio.sleep(3)  # Задержка 3 секунды, чтобы пользователь успел увидеть
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=sent_message.message_id
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить сообщение об отметке привычки: {e}")
+    
+    asyncio.create_task(delete_after_delay())
+
+# @dp.message(F.text == "📊 Мои привычки")
+# async def my_habits(message: types.Message):
+#     """Обработчик кнопки 'Мои привычки'"""
+#     await message.answer(
+#         "📊 Мои привычки\n\n"
+#         "💡 Функционал в разработке...",
+#         reply_markup=get_main_keyboard()
+#     )
 
 # ============================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ СО СТАТИСТИКОЙ
@@ -246,6 +514,10 @@ def generate_statistics_text(chat_id: int) -> str:
 # Храним ID закрепленного сообщения со статистикой для каждой группы
 stats_message_id = {}
 
+# Храним ID сообщения "Выбери привычку" для каждого пользователя в группе
+# {chat_id: {user_id: message_id}}
+habit_selection_message_id = {}
+
 async def update_statistics_message(chat_id: int):
     """Обновляет или создает сообщение со статистикой"""
     stats_text = generate_statistics_text(chat_id)
@@ -319,19 +591,19 @@ async def statistics(message: types.Message):
     # Обновляем статистику (функция сама удалит старое сообщение, если оно есть)
     await update_statistics_message(message.chat.id)
 
-@dp.message(F.text == "📋 Список привычек")
-async def list_habits(message: types.Message):
-    """Обработчик кнопки 'Список привычек'"""
-    await message.answer(
-        "📋 Список привычек\n\n"
-        "💡 Функционал в разработке...",
-        reply_markup=get_main_keyboard()
-    )
+# @dp.message(F.text == "📋 Список привычек")
+# async def list_habits(message: types.Message):
+#     """Обработчик кнопки 'Список привычек'"""
+#     await message.answer(
+#         "📋 Список привычек\n\n"
+#         "💡 Функционал в разработке...",
+#         reply_markup=get_main_keyboard()
+#     )
 
-@dp.message(F.text == "ℹ️ Помощь")
-async def help_button(message: types.Message):
-    """Обработчик кнопки 'Помощь'"""
-    await help(message)  # Используем ту же функцию, что и для команды /help
+# @dp.message(F.text == "ℹ️ Помощь")
+# async def help_button(message: types.Message):
+#     """Обработчик кнопки 'Помощь'"""
+#     await help(message)  # Используем ту же функцию, что и для команды /help
 
 # ============================================================
 # ГЛАВНАЯ ФУНКЦИЯ - ЗАПУСК БОТА

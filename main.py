@@ -86,6 +86,62 @@ async def help(message: types.Message):
         reply_markup=get_main_keyboard()
     )
 
+@dp.message(Command('my_id'))
+async def my_id(message: types.Message):
+    """Показывает ID пользователя для заполнения данных"""
+    user_info = (
+        f"👤 Информация о тебе:\n\n"
+        f"🆔 User ID: <code>{message.from_user.id}</code>\n"
+        f"👤 Имя: {message.from_user.full_name}\n"
+        f"📱 Username: @{message.from_user.username or 'не указан'}\n\n"
+        f"💡 Используй этот User ID для заполнения данных в data.py"
+    )
+    await message.answer(user_info, parse_mode="HTML", reply_markup=get_main_keyboard())
+
+@dp.message(Command('get_members'))
+async def get_members(message: types.Message):
+    """Собирает информацию о всех участниках группы (только для групп)"""
+    if message.chat.type not in ['group', 'supergroup']:
+        await message.answer(
+            "❌ Эта команда работает только в группах!",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    try:
+        # Получаем список администраторов группы
+        admins = await bot.get_chat_administrators(chat_id=message.chat.id)
+        
+        members_info = "👥 Участники группы:\n\n"
+        
+        # Собираем информацию об администраторах
+        for admin in admins:
+            user = admin.user
+            members_info += (
+                f"👤 {user.full_name}\n"
+                f"   🆔 ID: <code>{user.id}</code>\n"
+                f"   📱 @{user.username or 'нет username'}\n\n"
+            )
+        
+        # Если участников много, можно добавить информацию о других участниках
+        # Но для этого нужно, чтобы они написали в группе
+        
+        members_info += (
+            "💡 Чтобы получить ID других участников:\n"
+            "• Попроси их написать /my_id в группе\n"
+            "• Или используй их ID из сообщений в группе"
+        )
+        
+        await message.answer(members_info, parse_mode="HTML", reply_markup=get_main_keyboard())
+        logger.info(f"✅ Список участников отправлен для группы {message.chat.id}")
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка получения участников: {str(e)}\n\n"
+            f"💡 Убедись, что бот является администратором группы",
+            reply_markup=get_main_keyboard()
+        )
+        logger.error(f"❌ Ошибка получения участников: {e}")
+
 # ============================================================
 # ОБРАБОТЧИКИ КНОПОК КЛАВИАТУРЫ
 # ============================================================
@@ -112,9 +168,11 @@ async def my_habits(message: types.Message):
 # ============================================================
 def generate_statistics_text(chat_id: int) -> str:
     """Генерирует текст статистики в моноширинном формате"""
-    from datetime import datetime
+    from datetime import datetime, timedelta
     
-    # Получаем текущий месяц
+    # Инициализируем данные, если еще не инициализированы
+    init_test_data(chat_id)
+
     months_ru = {
         1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
         5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
@@ -122,22 +180,68 @@ def generate_statistics_text(chat_id: int) -> str:
     }
     month_num = datetime.now().month
     month_name = months_ru.get(month_num, "Месяц")
+
+    # Формируем заголовок
+    header_lines = [
+        "календарь",
+        f"месяц: {month_name}"
+    ]
+
+    # Строка с эмодзи пользователей (повторенные по количеству привычек)
+    users_emoji_line_parts = ["  "]  # 2 пробела в начале
+    if chat_id in tracker_data and chat_id in users_metadata:
+        for user_id, habits_data in sorted(tracker_data[chat_id].items()):
+            user_emoji = users_metadata[chat_id].get(user_id, {}).get("emoji", "❓")
+            num_habits = len(habits_data)
+            # Повторяем эмодзи пользователя столько раз, сколько у него привычек
+            users_emoji_line_parts.append(user_emoji * num_habits)
+    header_lines.append("".join(users_emoji_line_parts))
+
+    # Строка с эмодзи привычек (в том же порядке, что и пользователи)
+    # Сохраняем порядок привычек для использования в строках с датами
+    habits_order = []  # Список кортежей (user_id, habit_id) в порядке отображения
+    habits_emoji_line_parts = ["  "]  # 2 пробела в начале
+    if chat_id in tracker_data and chat_id in habits_metadata:
+        for user_id, habits_data in sorted(tracker_data[chat_id].items()):
+            # Для каждого пользователя выводим все его привычки по порядку
+            for habit_id in sorted(habits_data.keys()):
+                habits_order.append((user_id, habit_id))
+                habit_emoji = habits_metadata[chat_id].get(habit_id, {}).get("emoji", "❓")
+                habits_emoji_line_parts.append(habit_emoji)
+    header_lines.append("".join(habits_emoji_line_parts))
+
+    # Создаем список из 7 дат: от (сегодня - 6) до (сегодня)
+    today = datetime.now().date()
+    date_list = []
+    for i in range(7):
+        date = today - timedelta(days=6-i)  # От -6 до 0 (сегодня)
+        date_list.append(date.strftime("%Y-%m-%d"))
+
+    # Строки с датами и статусами (7 строк)
+    date_rows = []
+    for date_str in date_list:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        day = date_obj.day
+        
+        # Формируем строку: число дня + статусы для всех привычек
+        row_parts = [str(day)]
+        
+        # Добавляем статусы для всех привычек в том же порядке, что и в строке 4
+        if chat_id in tracker_data:
+            for user_id, habit_id in habits_order:
+                dates_status = tracker_data[chat_id].get(user_id, {}).get(habit_id, {})
+                status = dates_status.get(date_str)
+                if status is True:
+                    row_parts.append("✅")
+                elif status is False:
+                    row_parts.append("⛔️")
+                else:
+                    row_parts.append("🔘")
+        
+        date_rows.append("".join(row_parts))
     
-    # Тестовая конструкция с эмодзи и датами
-    # Первая строка: эмодзи пользователей
-    users_line = "   👨‍💻👨‍💻👨‍💻👩‍🎨👩‍🎨👩‍🎨🤱🤱🤱🧑‍🚀🧑‍🚀🧑‍🚀👨‍🚒👨‍🚒👨‍🚒"
-    
-    # Вторая строка: эмодзи привычек
-    habits_line = "   🏋️📚🏋️💊📚📚📚🏋️📚🏋️🏋️📚🏋️💊📚"
-    
-    # Третья строка: дата и статусы
-    # Дата 22: учитываем что 1 эмодзи = 5 пробелов, 2 цифры = 4 пробела, значит нужен 1 пробел перед датой
-    date_line = "22 ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅"
-    
-    text = f"календарь\nмесяц: {month_name}\n\n{users_line}\n{habits_line}\n{date_line}"
-    
-    # Используем HTML тег <pre> для моноширинного шрифта (лучше для многострочного текста)
-    return f"<pre>{text}</pre>"
+    full_text = "\n".join(header_lines + date_rows)
+    return f"<pre>{full_text}</pre>"
 
 # Храним ID закрепленного сообщения со статистикой для каждой группы
 stats_message_id = {}
@@ -203,6 +307,9 @@ async def statistics(message: types.Message):
             reply_markup=get_main_keyboard()
         )
         return
+    
+    # Инициализируем данные, если еще не инициализированы
+    init_test_data(message.chat.id)
     
     await update_statistics_message(message.chat.id)
     await message.answer(

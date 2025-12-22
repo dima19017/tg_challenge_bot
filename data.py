@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Структура данных трекера привычек:
 # {chat_id: {user_id: {habit_id: {date: status}}}}
-# где status: True (выполнено), False (не выполнено), None (не наступило)
+# где status:
+#   True - привычка отмечена (✅)
+#   False - пропуск (⛔️)
+#   None - день еще не наступил, или текущий день, в котором не отмечена привычка (🔘)
 tracker_data = {}
 
 # Метаданные привычек:
@@ -33,58 +36,71 @@ def init_test_data(chat_id: int):
     # Получаем сегодняшнюю дату и следующие несколько дней
     today = datetime.now().date()
     dates = []
-    for i in range(4):  # 4 дня
+    for i in range(7):  # 7 дней
         date = today + timedelta(days=i)
         dates.append(date.strftime("%Y-%m-%d"))
     
-    # Тестовые user_id (в реальности будут из Telegram)
-    user1_id = 123456789
-    user2_id = 987654321
+    # Вымышленные user_id (позже будут заменены на реальные из Telegram)
+    user1_id = 100000001  # 👨‍💻
+    user2_id = 100000002  # 👩‍🎨
+    user3_id = 100000003  # 🤱
+    user4_id = 100000004  # 🧑‍🚀
+    user5_id = 100000005  # 👨‍🚒
     
-    # Инициализируем структуру данных
+    # Инициализируем структуру данных для всех пользователей
     tracker_data[chat_id] = {
+        # 👨‍💻 - 3 привычки: 🧎, 📚, 🏋️
         user1_id: {
-            "reading": {
-                dates[0]: False,  # не выполнено
-                dates[1]: False,  # не выполнено
-                dates[2]: None,   # не наступило
-                dates[3]: None,   # не наступило
-            },
-            "sport": {
-                dates[0]: True,   # выполнено
-                dates[1]: True,   # выполнено
-                dates[2]: None,   # не наступило
-                dates[3]: None,   # не наступило
-            }
+            "meditation": {date: None for date in dates},  # 🧎
+            "reading": {date: None for date in dates},     # 📚
+            "sport": {date: None for date in dates},       # 🏋️
         },
+        # 👩‍🎨 - 3 привычки: 💊, 🏋️, 🥛
         user2_id: {
-            "reading": {
-                dates[0]: True,   # выполнено
-                dates[1]: False,  # не выполнено
-                dates[2]: None,   # не наступило
-                dates[3]: None,   # не наступило
-            },
-            "sport": {
-                dates[0]: True,   # выполнено
-                dates[1]: True,   # выполнено
-                dates[2]: None,   # не наступило
-                dates[3]: None,   # не наступило
-            }
+            "medicine": {date: None for date in dates},    # 💊
+            "sport": {date: None for date in dates},       # 🏋️
+            "milk": {date: None for date in dates},         # 🥛
+        },
+        # 🤱 - 3 привычки: 🚶‍♀️, 📚, 🥛
+        user3_id: {
+            "walk": {date: None for date in dates},         # 🚶‍♀️
+            "reading": {date: None for date in dates},     # 📚
+            "milk": {date: None for date in dates},        # 🥛
+        },
+        # 🧑‍🚀 - 3 привычки: 📚, 🏋️, 🕺
+        user4_id: {
+            "reading": {date: None for date in dates},     # 📚
+            "sport": {date: None for date in dates},         # 🏋️
+            "dance": {date: None for date in dates},        # 🕺
+        },
+        # 👨‍🚒 - 1 привычка: 👍
+        user5_id: {
+            "positive": {date: None for date in dates},     # 👍
         }
     }
     
     # Метаданные привычек
     habits_metadata[chat_id] = {
+        "meditation": {"emoji": "🧎", "name": "Медитация"},
         "reading": {"emoji": "📚", "name": "Чтение"},
-        "sport": {"emoji": "🏋️", "name": "Спорт"}
+        "sport": {"emoji": "🏋️", "name": "Спорт"},
+        "medicine": {"emoji": "💊", "name": "Лекарство"},
+        "milk": {"emoji": "🥛", "name": "Молоко"},
+        "walk": {"emoji": "🚶‍♀️", "name": "Прогулка"},
+        "dance": {"emoji": "🕺", "name": "Танцы"},
+        "positive": {"emoji": "👍", "name": "Позитив"},
     }
     
     # Метаданные пользователей
     users_metadata[chat_id] = {
-        user1_id: {"emoji": "👨", "name": "Person 1"},
-        user2_id: {"emoji": "👩", "name": "Person 2"}
+        user1_id: {"emoji": "👨‍💻", "name": "Программист"},
+        user2_id: {"emoji": "👩‍🎨", "name": "Художник"},
+        user3_id: {"emoji": "🤱", "name": "Мама"},
+        user4_id: {"emoji": "🧑‍🚀", "name": "Космонавт"},
+        user5_id: {"emoji": "👨‍🚒", "name": "Пожарный"},
     }
     
     logger.info(f"✅ Тестовые данные инициализированы для группы {chat_id}")
+
 
 

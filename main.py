@@ -9,15 +9,15 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from dotenv import load_dotenv
 import os
 from pathlib import Path
-from data import (
+from database import (
+    init_database,
     init_test_data,
     get_tracker_data_for_chat,
-    get_habits_metadata_for_chat,
-    get_users_metadata_for_chat,
-    mark_habit as mark_habit_db,
-    get_user_habits
+    get_all_habits_for_chat,
+    get_all_users_for_chat,
+    set_tracker_entry,
+    get_user_habits_for_chat
 )
-from database import init_database
 
 # ============================================================
 # КОНФИГУРАЦИЯ
@@ -70,7 +70,7 @@ async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup
     keyboard_buttons = []
     
     # Получаем привычки пользователя из БД
-    user_habits = await get_user_habits(chat_id, user_id)
+    user_habits = await get_user_habits_for_chat(chat_id, user_id)
     
     if not user_habits:
         # Если у пользователя нет привычек, возвращаем пустую клавиатуру с кнопкой "Назад"
@@ -80,7 +80,7 @@ async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup
         )
     
     # Получаем метаданные привычек
-    habits_meta = await get_habits_metadata_for_chat(chat_id)
+    habits_meta = await get_all_habits_for_chat(chat_id)
     
     # Создаем кнопки для каждой привычки
     for habit_id in sorted(user_habits):
@@ -172,7 +172,7 @@ async def chat_id_command(message: types.Message):
         chat_info += (
             f"\n💡 Этот Chat ID нужен для:\n"
             f"• Заполнения данных через команду /init_data\n"
-            f"• Использования скрипта fill_database.py\n"
+            f"• Использования скрипта init_chat_data.py для инициализации конкретного чата\n"
             f"• Настройки бота для этой группы"
         )
     
@@ -282,7 +282,7 @@ async def mark_habit(message: types.Message):
     chat_id = message.chat.id
     
     # Проверяем, есть ли пользователь в данных
-    user_habits = await get_user_habits(chat_id, user_id)
+    user_habits = await get_user_habits_for_chat(chat_id, user_id)
     if not user_habits:
         await message.answer(
             "❌ Твои привычки еще не настроены.\n"
@@ -389,7 +389,7 @@ async def mark_habit_button(message: types.Message):
     chat_id = message.chat.id
     
     # Проверяем, есть ли пользователь в данных
-    user_habits = await get_user_habits(chat_id, user_id)
+    user_habits = await get_user_habits_for_chat(chat_id, user_id)
     if not user_habits:
         await message.answer(
             "❌ Твои привычки еще не настроены.",
@@ -411,7 +411,7 @@ async def mark_habit_button(message: types.Message):
     habit_name = parts[1]
     
     # Находим habit_id по эмодзи и названию
-    habits_meta = await get_habits_metadata_for_chat(chat_id)
+    habits_meta = await get_all_habits_for_chat(chat_id)
     habit_id = None
     
     for hid, info in habits_meta.items():
@@ -439,7 +439,7 @@ async def mark_habit_button(message: types.Message):
     today_str = datetime.now().date().strftime("%Y-%m-%d")
     
     # Сохраняем в БД (True - выполнено)
-    await mark_habit_db(chat_id, user_id, habit_id, today_str, True)
+    await set_tracker_entry(chat_id, user_id, habit_id, today_str, True)
     
     # Обновляем статистику
     await update_statistics_message(chat_id)
@@ -466,7 +466,7 @@ async def mark_habit_button(message: types.Message):
             logger.warning(f"⚠️ Не удалось удалить сообщение выбора привычки: {e}")
     
     # Получаем информацию о пользователе для отображения
-    users_meta = await get_users_metadata_for_chat(chat_id)
+    users_meta = await get_all_users_for_chat(chat_id)
     user_info = users_meta.get(user_id, {})
     user_name = user_info.get("name", message.from_user.full_name or "Пользователь")
     user_emoji = user_info.get("emoji", "👤")
@@ -530,8 +530,8 @@ async def generate_statistics_text(chat_id: int) -> str:
     date_end = today.strftime("%Y-%m-%d")
     
     tracker_data = await get_tracker_data_for_chat(chat_id, date_start, date_end)
-    users_metadata = await get_users_metadata_for_chat(chat_id)
-    habits_metadata = await get_habits_metadata_for_chat(chat_id)
+    users_metadata = await get_all_users_for_chat(chat_id)
+    habits_metadata = await get_all_habits_for_chat(chat_id)
 
     # Строка с эмодзи пользователей (повторенные по количеству привычек)
     users_emoji_line_parts = ["  "]  # 2 пробела в начале

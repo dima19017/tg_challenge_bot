@@ -44,7 +44,7 @@ dp = Dispatcher(storage=storage)
 # ============================================================
 # КЛАВИАТУРА (ВСЕГДА ДОСТУПНА)
 # ============================================================
-def get_main_keyboard() -> ReplyKeyboardMarkup:
+def get_main_keyboard(selective: bool = True) -> ReplyKeyboardMarkup:
     """Главная клавиатура с основными кнопками"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
@@ -61,11 +61,12 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
             # ]
         ],
         resize_keyboard=True,  # Автоматически подстраивает размер кнопок
+        selective=selective,  # По умолчанию показывать только запросившему пользователю
         input_field_placeholder="Выбери действие на клавиатуре..."
     )
     return keyboard
 
-async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup:
+async def get_habits_keyboard(user_id: int, chat_id: int, selective: bool = True) -> ReplyKeyboardMarkup:
     """Генерирует клавиатуру с привычками пользователя"""
     keyboard_buttons = []
     
@@ -76,7 +77,8 @@ async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup
         # Если у пользователя нет привычек, возвращаем пустую клавиатуру с кнопкой "Назад"
         return ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text="🔙 Назад")]],
-            resize_keyboard=True
+            resize_keyboard=True,
+            selective=selective  # Показывать только запросившему пользователю
         )
     
     # Получаем метаданные привычек
@@ -97,6 +99,7 @@ async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup
     keyboard = ReplyKeyboardMarkup(
         keyboard=keyboard_buttons,
         resize_keyboard=True,
+        selective=selective,  # Показывать только запросившему пользователю
         input_field_placeholder="Выбери привычку для отметки..."
     )
     return keyboard
@@ -106,11 +109,12 @@ async def get_habits_keyboard(user_id: int, chat_id: int) -> ReplyKeyboardMarkup
 # ============================================================
 @dp.message(Command('start'))
 async def start(message: types.Message):
-    await message.answer(
+    # Используем selective=True для главной клавиатуры, чтобы она показывалась только запросившему пользователю
+    await message.reply(
         "👋 Привет! Это бот для семейного челленджа!\n\n"
         "💡 Используй кнопки ниже для навигации.\n"
         "Все действия можно выполнить одним нажатием!",
-        reply_markup=get_main_keyboard()
+        reply_markup=get_main_keyboard(selective=True)
     )
     
     # Инициализируем тестовые данные для группы
@@ -119,7 +123,7 @@ async def start(message: types.Message):
 
 @dp.message(Command('help'))
 async def help(message: types.Message):
-    await message.answer(
+    await message.reply(
         "📖 Помощь:\n\n"
         "Используй кнопки на клавиатуре для навигации:\n"
         "• ✅ Отметить привычку - отметить выполнение\n"
@@ -127,7 +131,7 @@ async def help(message: types.Message):
         "• 📈 Статистика - посмотреть статистику\n",
         # "• 📋 Список привычек - список всех привычек\n"
         # "• ℹ️ Помощь - показать эту справку",
-        reply_markup=get_main_keyboard()
+        reply_markup=get_main_keyboard(selective=True)
     )
 
 @dp.message(Command('my_id'))
@@ -140,7 +144,7 @@ async def my_id(message: types.Message):
         f"📱 Username: @{message.from_user.username or 'не указан'}\n\n"
         f"💡 Используй этот User ID для заполнения данных в data.py"
     )
-    await message.answer(user_info, parse_mode="HTML", reply_markup=get_main_keyboard())
+    await message.reply(user_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
 
 @dp.message(Command('chat_id'))
 async def chat_id_command(message: types.Message):
@@ -176,16 +180,16 @@ async def chat_id_command(message: types.Message):
             f"• Настройки бота для этой группы"
         )
     
-    await message.answer(chat_info, parse_mode="HTML", reply_markup=get_main_keyboard())
+    await message.reply(chat_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
     logger.info(f"✅ Chat ID показан: {message.chat.id} ({message.chat.type})")
 
 @dp.message(Command('get_members'))
 async def get_members(message: types.Message):
     """Собирает информацию о всех участниках группы (только для групп)"""
     if message.chat.type not in ['group', 'supergroup']:
-        await message.answer(
+        await message.reply(
             "❌ Эта команда работает только в группах!",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
@@ -213,13 +217,13 @@ async def get_members(message: types.Message):
             "• Или используй их ID из сообщений в группе"
         )
         
-        await message.answer(members_info, parse_mode="HTML", reply_markup=get_main_keyboard())
+        await message.reply(members_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
         logger.info(f"✅ Список участников отправлен для группы {message.chat.id}")
     except Exception as e:
-        await message.answer(
+        await message.reply(
             f"❌ Ошибка получения участников: {str(e)}\n\n"
             f"💡 Убедись, что бот является администратором группы",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         logger.error(f"❌ Ошибка получения участников: {e}")
 
@@ -227,22 +231,22 @@ async def get_members(message: types.Message):
 async def init_data_command(message: types.Message):
     """Инициализирует тестовые данные для группы"""
     if message.chat.type not in ['group', 'supergroup']:
-        await message.answer(
+        await message.reply(
             "❌ Эта команда работает только в группах!",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
     try:
         chat_id = message.chat.id
-        await message.answer(
+        await message.reply(
             "⏳ Инициализирую данные для группы...",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         
         await init_test_data(chat_id)
         
-        await message.answer(
+        await message.reply(
             "✅ Данные успешно инициализированы!\n\n"
             "Добавлены следующие пользователи:\n"
             "👨‍💻 Дима - 3 привычки\n"
@@ -251,13 +255,13 @@ async def init_data_command(message: types.Message):
             "🧑‍🚀 Саша - 3 привычки\n"
             "👨‍🚒 Папа - 1 привычка\n\n"
             "💡 Теперь можно использовать кнопку '📈 Статистика' для просмотра трекера.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         logger.info(f"✅ Данные инициализированы для группы {chat_id}")
     except Exception as e:
-        await message.answer(
+        await message.reply(
             f"❌ Ошибка инициализации данных: {str(e)}",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         logger.error(f"❌ Ошибка инициализации данных: {e}")
 
@@ -268,10 +272,10 @@ async def init_data_command(message: types.Message):
 async def mark_habit(message: types.Message):
     """Обработчик кнопки 'Отметить привычку'"""
     if message.chat.type not in ['group', 'supergroup']:
-        await message.answer(
+        await message.reply(
             "❌ Отметка привычек работает только в группах!\n"
             "Добавь бота в группу для использования.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
@@ -284,21 +288,12 @@ async def mark_habit(message: types.Message):
     # Проверяем, есть ли пользователь в данных
     user_habits = await get_user_habits_for_chat(chat_id, user_id)
     if not user_habits:
-        await message.answer(
+        await message.reply(
             "❌ Твои привычки еще не настроены.\n"
             "Обратись к администратору группы.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
-    
-    # Удаляем сообщение пользователя СРАЗУ (без задержек)
-    try:
-        await bot.delete_message(
-            chat_id=chat_id,
-            message_id=message.message_id
-        )
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
     
     # Удаляем предыдущее сообщение "Выбери привычку", если оно есть
     if chat_id in habit_selection_message_id and user_id in habit_selection_message_id[chat_id]:
@@ -311,11 +306,22 @@ async def mark_habit(message: types.Message):
             logger.warning(f"⚠️ Не удалось удалить предыдущее сообщение выбора привычки: {e}")
     
     # Показываем клавиатуру с привычками пользователя
-    habits_kb = await get_habits_keyboard(user_id, chat_id)
-    sent_message = await message.answer(
+    # Используем selective=True и reply_to_message_id, чтобы клавиатура показывалась только запросившему пользователю
+    habits_kb = await get_habits_keyboard(user_id, chat_id, selective=True)
+    sent_message = await message.reply(
         "✅ Выбери привычку для отметки:",
-        reply_markup=habits_kb
+        reply_markup=habits_kb,
+        disable_notification=True
     )
+    
+    # Удаляем сообщение пользователя после отправки ответа (чтобы selective работал)
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
     
     # Сохраняем ID сообщения для последующего удаления
     if chat_id not in habit_selection_message_id:
@@ -349,9 +355,9 @@ async def back_to_main(message: types.Message):
             logger.warning(f"⚠️ Не удалось удалить сообщение выбора привычки: {e}")
     
     # Отправляем сообщение без уведомлений и удаляем его
-    sent_message = await message.answer(
+    sent_message = await message.reply(
         "🔙 Возврат в главное меню",
-        reply_markup=get_main_keyboard(),
+        reply_markup=get_main_keyboard(selective=True),
         disable_notification=True
     )
     
@@ -391,9 +397,9 @@ async def mark_habit_button(message: types.Message):
     # Проверяем, есть ли пользователь в данных
     user_habits = await get_user_habits_for_chat(chat_id, user_id)
     if not user_habits:
-        await message.answer(
+        await message.reply(
             "❌ Твои привычки еще не настроены.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
@@ -401,9 +407,9 @@ async def mark_habit_button(message: types.Message):
     # Разделяем по первому пробелу
     parts = button_text.split(" ", 1)
     if len(parts) != 2:
-        await message.answer(
+        await message.reply(
             "❌ Ошибка определения привычки.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
@@ -420,17 +426,17 @@ async def mark_habit_button(message: types.Message):
             break
     
     if not habit_id:
-        await message.answer(
+        await message.reply(
             "❌ Привычка не найдена.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
     # Проверяем, есть ли эта привычка у пользователя
     if habit_id not in user_habits:
-        await message.answer(
+        await message.reply(
             "❌ У тебя нет такой привычки.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     
@@ -440,18 +446,6 @@ async def mark_habit_button(message: types.Message):
     
     # Сохраняем в БД (True - выполнено)
     await set_tracker_entry(chat_id, user_id, habit_id, today_str, True)
-    
-    # Обновляем статистику
-    await update_statistics_message(chat_id)
-    
-    # Удаляем сообщение пользователя
-    try:
-        await bot.delete_message(
-            chat_id=chat_id,
-            message_id=message.message_id
-        )
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
     
     # Удаляем сообщение "Выбери привычку для отметки", если оно есть
     if chat_id in habit_selection_message_id and user_id in habit_selection_message_id[chat_id]:
@@ -465,31 +459,30 @@ async def mark_habit_button(message: types.Message):
         except Exception as e:
             logger.warning(f"⚠️ Не удалось удалить сообщение выбора привычки: {e}")
     
+    # Обновляем статистику (это создаст новое сообщение со статистикой)
+    await update_statistics_message(chat_id)
+    
     # Получаем информацию о пользователе для отображения
     users_meta = await get_all_users_for_chat(chat_id)
     user_info = users_meta.get(user_id, {})
     user_name = user_info.get("name", message.from_user.full_name or "Пользователь")
     user_emoji = user_info.get("emoji", "👤")
     
-    # Отправляем подтверждение с информацией о пользователе без уведомлений и удаляем его
-    sent_message = await message.answer(
+    # Отправляем подтверждение как reply на сообщение пользователя (selective=True работает только с reply на сообщение пользователя)
+    await message.reply(
         f"✅ {user_emoji} {user_name} отметил(а) привычку '{habit_name}' на сегодня!",
-        reply_markup=get_main_keyboard(),
+        reply_markup=get_main_keyboard(selective=True),
         disable_notification=True
     )
     
-    # Удаляем сообщение через небольшую задержку
-    async def delete_after_delay():
-        await asyncio.sleep(3)  # Задержка 3 секунды, чтобы пользователь успел увидеть
-        try:
-            await bot.delete_message(
-                chat_id=chat_id,
-                message_id=sent_message.message_id
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить сообщение об отметке привычки: {e}")
-    
-    asyncio.create_task(delete_after_delay())
+    # Удаляем сообщение пользователя ПОСЛЕ отправки подтверждения
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
 
 # @dp.message(F.text == "📊 Мои привычки")
 # async def my_habits(message: types.Message):
@@ -643,10 +636,10 @@ async def create_statistics_message(chat_id: int, stats_text: str):
 async def statistics(message: types.Message):
     """Обработчик кнопки 'Статистика'"""
     if message.chat.type not in ['group', 'supergroup']:
-        await message.answer(
+        await message.reply(
             "❌ Статистика работает только в группах!\n"
             "Добавь бота в группу для использования.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(selective=True)
         )
         return
     

@@ -109,13 +109,35 @@ async def get_habits_keyboard(user_id: int, chat_id: int, selective: bool = True
 # ============================================================
 @dp.message(Command('start'))
 async def start(message: types.Message):
-    # Используем selective=True для главной клавиатуры, чтобы она показывалась только запросившему пользователю
-    await message.reply(
+    # Отправляем приветствие с клавиатурой как reply на сообщение пользователя
+    sent_message = await message.reply(
         "👋 Привет! Это бот для семейного челленджа!\n\n"
         "💡 Используй кнопки ниже для навигации.\n"
         "Все действия можно выполнить одним нажатием!",
         reply_markup=get_main_keyboard(selective=True)
     )
+    
+    # Удаляем сообщение пользователя ПОСЛЕ отправки reply
+    try:
+        await bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+    
+    # Удаляем приветственное сообщение бота через небольшую задержку
+    async def delete_welcome_message():
+        await asyncio.sleep(1)  # Задержка 3 секунды, чтобы пользователь успел увидеть
+        try:
+            await bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=sent_message.message_id
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить приветственное сообщение: {e}")
+    
+    asyncio.create_task(delete_welcome_message())
     
     # Инициализируем тестовые данные для группы
     if message.chat.type in ['group', 'supergroup']:

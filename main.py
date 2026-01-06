@@ -83,14 +83,41 @@ async def get_habits_keyboard(user_id: int, chat_id: int, selective: bool = True
     
     # Получаем метаданные привычек
     habits_meta = await get_all_habits_for_chat(chat_id)
+
+    # Получаем статусы привычек за сегодня, чтобы подсветить состояние на кнопках
+    from datetime import datetime
+    today_str = datetime.now().date().strftime("%Y-%m-%d")
+    tracker_today = await get_tracker_data_for_chat(chat_id, today_str, today_str)
+
+    # Проверяем, выполнены ли все привычки пользователя на сегодня
+    all_completed = False
+    if user_habits:
+        user_today_data = tracker_today.get(user_id, {})
+        completed_flags = []
+        for habit_id in user_habits:
+            status = user_today_data.get(habit_id, {}).get(today_str)
+            completed_flags.append(status is True)
+        all_completed = bool(completed_flags) and all(completed_flags)
     
+    # Добавляем верхнюю подсказку-заглушку
+    hint_text = "🎉 Все привычки выполнены на сегодня!" if all_completed else "ℹ️ Отметь одну из привычек ниже"
+    keyboard_buttons.append([KeyboardButton(text=hint_text)])
+
     # Создаем кнопки для каждой привычки
     for habit_id in sorted(user_habits):
         habit_info = habits_meta.get(habit_id, {})
         emoji = habit_info.get("emoji", "❓")
         name = habit_info.get("name", habit_id)
-        # Формат кнопки: "🧎 Медитация"
-        button_text = f"{emoji} {name}"
+
+        # Определяем статус привычки на сегодня:
+        # True  -> выполнена ✅
+        # False/None/отсутствует -> ещё не выполнена 🔘
+        status_map_for_user = tracker_today.get(user_id, {})
+        status_for_habit = status_map_for_user.get(habit_id, {}).get(today_str)
+        status_emoji = "✅" if status_for_habit is True else "🔘"
+
+        # Формат кнопки: "🧎 Медитация ✅/🔘"
+        button_text = f"{emoji} {name} {status_emoji}"
         keyboard_buttons.append([KeyboardButton(text=button_text)])
     
     # Добавляем кнопку "Назад"
@@ -109,39 +136,37 @@ async def get_habits_keyboard(user_id: int, chat_id: int, selective: bool = True
 # ============================================================
 @dp.message(Command('start'))
 async def start(message: types.Message):
-    # Отправляем приветствие с клавиатурой как reply на сообщение пользователя
-    sent_message = await message.reply(
-        "👋 Привет! Это бот для семейного челленджа!\n\n"
-        "💡 Используй кнопки ниже для навигации.\n"
-        "Все действия можно выполнить одним нажатием!",
-        reply_markup=get_main_keyboard(selective=True)
-    )
-    
-    # Удаляем сообщение пользователя ПОСЛЕ отправки reply
-    try:
-        await bot.delete_message(
-            chat_id=message.chat.id,
-            message_id=message.message_id
-        )
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
-    
-    # Удаляем приветственное сообщение бота через небольшую задержку
-    async def delete_welcome_message():
-        await asyncio.sleep(1)  # Задержка 3 секунды, чтобы пользователь успел увидеть
+    """
+    Обработчик /start:
+    - в группе: инициализирует данные, удаляет команду пользователя и показывает статистику как единственное постоянное сообщение
+    - в личке: показывает краткое приветствие с клавиатурой
+    """
+    chat_id = message.chat.id
+
+    if message.chat.type in ['group', 'supergroup']:
+        # Инициализируем тестовые данные для группы (если ещё не инициализированы)
+        await init_test_data(chat_id)
+
+        # Удаляем сообщение пользователя с /start
         try:
             await bot.delete_message(
-                chat_id=message.chat.id,
-                message_id=sent_message.message_id
+                chat_id=chat_id,
+                message_id=message.message_id
             )
         except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить приветственное сообщение: {e}")
-    
-    asyncio.create_task(delete_welcome_message())
-    
-    # Инициализируем тестовые данные для группы
-    if message.chat.type in ['group', 'supergroup']:
-        await init_test_data(message.chat.id)
+            logger.warning(f"⚠️ Не удалось удалить сообщение пользователя: {e}")
+
+        # Обновляем/создаём сообщение со статистикой (старое сообщение будет удалено внутри)
+        await update_statistics_message(chat_id)
+    else:
+        # Для личных чатов оставим нормальное приветствие с клавиатурой
+        await message.answer(
+            "👋 Привет! Это бот для семейного челленджа!\n\n"
+            "Добавь меня в семейную группу, чтобы вести общий трекер привычек.\n"
+            "В группе используй кнопки для отметки привычек и просмотра статистики.",
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
+        )
 
 @dp.message(Command('help'))
 async def help(message: types.Message):
@@ -153,7 +178,8 @@ async def help(message: types.Message):
         "• 📈 Статистика - посмотреть статистику\n",
         # "• 📋 Список привычек - список всех привычек\n"
         # "• ℹ️ Помощь - показать эту справку",
-        reply_markup=get_main_keyboard(selective=True)
+        reply_markup=get_main_keyboard(selective=True),
+        disable_notification=True
     )
 
 @dp.message(Command('my_id'))
@@ -166,7 +192,7 @@ async def my_id(message: types.Message):
         f"📱 Username: @{message.from_user.username or 'не указан'}\n\n"
         f"💡 Используй этот User ID для заполнения данных в data.py"
     )
-    await message.reply(user_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
+    await message.reply(user_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True),disable_notification=True)
 
 @dp.message(Command('chat_id'))
 async def chat_id_command(message: types.Message):
@@ -202,7 +228,7 @@ async def chat_id_command(message: types.Message):
             f"• Настройки бота для этой группы"
         )
     
-    await message.reply(chat_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
+    await message.reply(chat_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True), disable_notification=True)
     logger.info(f"✅ Chat ID показан: {message.chat.id} ({message.chat.type})")
 
 @dp.message(Command('get_members'))
@@ -211,7 +237,8 @@ async def get_members(message: types.Message):
     if message.chat.type not in ['group', 'supergroup']:
         await message.reply(
             "❌ Эта команда работает только в группах!",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
@@ -239,13 +266,14 @@ async def get_members(message: types.Message):
             "• Или используй их ID из сообщений в группе"
         )
         
-        await message.reply(members_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True))
+        await message.reply(members_info, parse_mode="HTML", reply_markup=get_main_keyboard(selective=True), disable_notification=True)
         logger.info(f"✅ Список участников отправлен для группы {message.chat.id}")
     except Exception as e:
         await message.reply(
             f"❌ Ошибка получения участников: {str(e)}\n\n"
             f"💡 Убедись, что бот является администратором группы",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         logger.error(f"❌ Ошибка получения участников: {e}")
 
@@ -255,7 +283,8 @@ async def init_data_command(message: types.Message):
     if message.chat.type not in ['group', 'supergroup']:
         await message.reply(
             "❌ Эта команда работает только в группах!",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
@@ -263,7 +292,8 @@ async def init_data_command(message: types.Message):
         chat_id = message.chat.id
         await message.reply(
             "⏳ Инициализирую данные для группы...",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         
         await init_test_data(chat_id)
@@ -277,13 +307,15 @@ async def init_data_command(message: types.Message):
             "🧑‍🚀 Саша - 3 привычки\n"
             "👨‍🚒 Папа - 1 привычка\n\n"
             "💡 Теперь можно использовать кнопку '📈 Статистика' для просмотра трекера.",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         logger.info(f"✅ Данные инициализированы для группы {chat_id}")
     except Exception as e:
         await message.reply(
             f"❌ Ошибка инициализации данных: {str(e)}",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         logger.error(f"❌ Ошибка инициализации данных: {e}")
 
@@ -297,7 +329,8 @@ async def mark_habit(message: types.Message):
         await message.reply(
             "❌ Отметка привычек работает только в группах!\n"
             "Добавь бота в группу для использования.",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
@@ -313,7 +346,8 @@ async def mark_habit(message: types.Message):
         await message.reply(
             "❌ Твои привычки еще не настроены.\n"
             "Обратись к администратору группы.",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
@@ -396,8 +430,24 @@ async def back_to_main(message: types.Message):
     
     asyncio.create_task(delete_after_delay())
 
+
+@dp.message(F.text.in_(["ℹ️ Отметь одну из привычек ниже", "🎉 Все привычки выполнены на сегодня!"]))
+async def ignore_habits_hint(message: types.Message):
+    """
+    Заглушка в клавиатуре привычек: делаем кнопку визуальной,
+    но при нажатии просто удаляем сообщение пользователя и ничего не отвечаем.
+    """
+    try:
+        await bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось удалить сообщение с подсказкой: {e}")
+
 @dp.message(lambda message: message.text and " " in message.text and 
-             message.text not in ["✅ Отметить привычку", "📈 Статистика", "🔙 Назад"])
+             message.text not in ["✅ Отметить привычку", "📈 Статистика", "🔙 Назад",
+                                  "ℹ️ Отметь одну из привычек ниже", "🎉 Все привычки выполнены на сегодня!"])
 async def mark_habit_button(message: types.Message):
     """Обработчик нажатия на кнопку привычки (универсальный - работает с любыми эмодзи из БД)"""
     if message.chat.type not in ['group', 'supergroup']:
@@ -421,18 +471,20 @@ async def mark_habit_button(message: types.Message):
     if not user_habits:
         await message.reply(
             "❌ Твои привычки еще не настроены.",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
     # Парсим текст кнопки: "🧎 Медитация" -> эмодзи и название
     # Разделяем по первому пробелу
-    parts = button_text.split(" ", 1)
-    if len(parts) != 2:
-        await message.reply(
-            "❌ Ошибка определения привычки.",
-            reply_markup=get_main_keyboard(selective=True)
-        )
+    parts = button_text.split(" ", 2)
+    if len(parts) != 3:
+        # await message.reply(
+        #     "❌ Ошибка определения привычки.",
+        #     reply_markup=get_main_keyboard(selective=True),
+        #     disable_notification=True
+        # )
         return
     
     emoji = parts[0]
@@ -448,18 +500,20 @@ async def mark_habit_button(message: types.Message):
             break
     
     if not habit_id:
-        await message.reply(
-            "❌ Привычка не найдена.",
-            reply_markup=get_main_keyboard(selective=True)
-        )
+        # await message.reply(
+        #     "❌ Привычка не найдена.",
+        #     reply_markup=get_main_keyboard(selective=True),
+        #     disable_notification=True
+        # )
         return
     
     # Проверяем, есть ли эта привычка у пользователя
     if habit_id not in user_habits:
-        await message.reply(
-            "❌ У тебя нет такой привычки.",
-            reply_markup=get_main_keyboard(selective=True)
-        )
+        # await message.reply(
+        #     "❌ У тебя нет такой привычки.",
+        #     reply_markup=get_main_keyboard(selective=True),
+        #     disable_notification=True
+        # )
         return
     
     # Отмечаем привычку для текущей даты
@@ -546,54 +600,81 @@ async def generate_statistics_text(chat_id: int) -> str:
     
     tracker_data = await get_tracker_data_for_chat(chat_id, date_start, date_end)
     users_metadata = await get_all_users_for_chat(chat_id)
-    habits_metadata = await get_all_habits_for_chat(chat_id)
 
-    # Строка с эмодзи пользователей (повторенные по количеству привычек)
+    # Список пользователей в фиксированном порядке
+    user_order = sorted(tracker_data.keys())
+
+    # Эмодзи для счетчиков выполнения привычек
+    counter_emojis = {
+        0: "0️⃣",
+        1: "1️⃣",
+        2: "2️⃣",
+        3: "3️⃣",
+        4: "4️⃣",
+        5: "5️⃣",
+        6: "6️⃣",
+        7: "7️⃣",
+        8: "8️⃣",
+        9: "9️⃣",
+    }
+
+    # Строка с кол-вом привычек пользователей (по одному на пользователя)
+    habits_count_line_parts = ["  "]  # 2 пробела под датой
+    for user_id in user_order:
+        user_habits = tracker_data.get(user_id, {})
+        total_habits = len(user_habits) if user_habits else 0
+
+        if total_habits == 0:
+            habits_count_line_parts.append("➖")
+        else:
+            habits_count_line_parts.append(counter_emojis.get(total_habits, str(total_habits)))
+    header_lines.append("".join(habits_count_line_parts))
+
+    # Строка с эмодзи пользователей (по одному на пользователя)
     users_emoji_line_parts = ["  "]  # 2 пробела в начале
-    for user_id in sorted(tracker_data.keys()):
+    for user_id in user_order:
         user_emoji = users_metadata.get(user_id, {}).get("emoji", "❓")
-        num_habits = len(tracker_data[user_id])
-        # Повторяем эмодзи пользователя столько раз, сколько у него привычек
-        users_emoji_line_parts.append(user_emoji * num_habits)
+        users_emoji_line_parts.append(user_emoji)
     header_lines.append("".join(users_emoji_line_parts))
-
-    # Строка с эмодзи привычек (в том же порядке, что и пользователи)
-    # Сохраняем порядок привычек для использования в строках с датами
-    habits_order = []  # Список кортежей (user_id, habit_id) в порядке отображения
-    habits_emoji_line_parts = ["  "]  # 2 пробела в начале
-    for user_id in sorted(tracker_data.keys()):
-        # Для каждого пользователя выводим все его привычки по порядку
-        for habit_id in sorted(tracker_data[user_id].keys()):
-            habits_order.append((user_id, habit_id))
-            habit_emoji = habits_metadata.get(habit_id, {}).get("emoji", "❓")
-            habits_emoji_line_parts.append(habit_emoji)
-    header_lines.append("".join(habits_emoji_line_parts))
 
     # Создаем список из 7 дат: от (сегодня - 6) до (сегодня)
     date_list = []
-    for i in range(7):
-        date = today - timedelta(days=6-i)  # От -6 до 0 (сегодня)
+    for i in range(6):
+        date = today - timedelta(days=5-i)  # От -6 до 0 (сегодня)
         date_list.append(date.strftime("%Y-%m-%d"))
 
-    # Строки с датами и статусами (7 строк)
+    # Строки с датами и агрегированными статусами по пользователю (7 строк)
     date_rows = []
     for date_str in date_list:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         day = date_obj.day
+        day_str = str(day)
         
-        # Формируем строку: число дня + статусы для всех привычек
-        row_parts = [str(day)]
+        # Формируем строку: число дня (однозначные числа выравниваем дополнительным пробелом)
+        if len(day_str) == 1:
+            row_parts = [day_str + " "]
+        else:
+            row_parts = [day_str]
         
-        # Добавляем статусы для всех привычек в том же порядке, что и в строке 4
-        for user_id, habit_id in habits_order:
-            dates_status = tracker_data.get(user_id, {}).get(habit_id, {})
-            status = dates_status.get(date_str)
-            if status is True:
+        for user_id in user_order:
+            user_habits = tracker_data.get(user_id, {})
+            total_habits = len(user_habits) if user_habits else 0
+
+            if total_habits == 0:
+                # Если вдруг нет привычек — показываем пустой индикатор
+                row_parts.append("➖")
+                continue
+
+            completed_count = 0
+            for habit_id, dates_status in user_habits.items():
+                status = dates_status.get(date_str)
+                if status is True:
+                    completed_count += 1
+
+            if completed_count >= total_habits:
                 row_parts.append("✅")
-            elif status is False:
-                row_parts.append("⛔️")
             else:
-                row_parts.append("🔘")
+                row_parts.append(counter_emojis.get(completed_count, str(completed_count)))
         
         date_rows.append("".join(row_parts))
     
@@ -635,7 +716,9 @@ async def create_statistics_message(chat_id: int, stats_text: str):
         sent_message = await bot.send_message(
             chat_id=chat_id,
             text=stats_text,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard(selective=False),
+            disable_notification=True
         )
         
         # Закрепляем сообщение
@@ -661,7 +744,8 @@ async def statistics(message: types.Message):
         await message.reply(
             "❌ Статистика работает только в группах!\n"
             "Добавь бота в группу для использования.",
-            reply_markup=get_main_keyboard(selective=True)
+            reply_markup=get_main_keyboard(selective=True),
+            disable_notification=True
         )
         return
     
